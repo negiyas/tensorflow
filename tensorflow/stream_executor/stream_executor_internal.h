@@ -210,6 +210,8 @@ class StreamExecutorInterface {
   virtual void UnifiedMemoryDeallocate(void *mem) {}
   virtual void *HostMemoryAllocate(uint64 size) = 0;
   virtual void HostMemoryDeallocate(void *mem) = 0;
+  virtual void *ATSMemoryAllocate(uint64 size) { return nullptr; }
+  virtual void ATSMemoryDeallocate(void *mem) {}
   virtual bool HostMemoryRegister(void *mem, uint64 size) = 0;
   virtual bool HostMemoryUnregister(void *mem) = 0;
   virtual bool SynchronizeAllActivity() = 0;

@@ -18,6 +18,8 @@ limitations under the License.
 #include <cstring>
 #include <vector>
 
+#include <stdio.h>
+#include "tensorflow/core/common_runtime/gpu/gpu_ats_allocator.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_bfc_allocator.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_cudamalloc_allocator.h"
 #include "tensorflow/core/common_runtime/gpu/gpu_debug_allocator.h"
@@ -46,6 +48,12 @@ bool useCudaMallocAllocator() {
   const char* debug_allocator_str = std::getenv("TF_GPU_ALLOCATOR");
   return debug_allocator_str != nullptr &&
          std::strcmp(debug_allocator_str, "cuda_malloc") == 0;
+}
+
+bool useATSAllocator() {
+  const char* debug_allocator_str = std::getenv("TF_GPU_ALLOCATOR");
+  return debug_allocator_str != nullptr &&
+         std::strcmp(debug_allocator_str, "cuda_ats") == 0;
 }
 
 bool useCudaMemoryGuardAllocator() {
@@ -125,14 +133,50 @@ Allocator* GPUProcessState::GetGPUAllocator(const GPUOptions& options,
     // If true, checks for memory overwrites by writing
     // distinctive patterns on both ends of allocated memory.
     if (useCudaMemoryGuardAllocator()) {
+      printf("ALLOCATOR: CudaMemoryGuardAllocator\n");
       gpu_allocator = new GPUDebugAllocator(gpu_allocator, platform_gpu_id);
       gpu_allocator = new GPUNanResetAllocator(gpu_allocator, platform_gpu_id);
     } else if (useCudaMallocAllocator()) {
       // If true, passes all allocation requests through to cudaMalloc
       // useful for doing memory debugging with tools like cuda-memcheck
       // **WARNING** probably will not work in a multi-gpu scenario
+      printf("ALLOCATOR: GPUcudaMallocAllocator\n");
       gpu_allocator =
           new GPUcudaMallocAllocator(gpu_allocator, platform_gpu_id);
+    } else if (useATSAllocator()) {
+#define MAXSIZESTRLEN 1024
+      size_t threshold = 0UL;
+      const char* threshold_str = std::getenv("TF_GPU_ALLOCATOR_ATS_THRESHOLD");
+      if (threshold_str != nullptr) {
+        char str[MAXSIZESTRLEN];
+        strncpy(str, threshold_str, MAXSIZESTRLEN);
+        int last = strlen(str) - 1;
+        size_t unit = 1UL;
+        switch (str[last]) {
+        case 'K':
+          unit = 1024;
+          str[last] = (char)  0;
+          break;
+        case 'M':
+          unit = (1024 * 1024);
+          str[last] = (char)  0;
+          break;
+        case 'G':
+          unit = (1024 * 1024 * 1024);
+          str[last] = (char)  0;
+          break;
+        default:
+          unit = 1UL;
+        }
+        threshold = unit * atoi(str);
+      }
+      printf("ALLOCATOR: GPUATSAllocator(threshold=%ld)\n", threshold);
+      fflush(stdout);
+      gpu_allocator =
+          new GPUATSAllocator(gpu_allocator, platform_gpu_id, threshold);
+    } else {
+      printf("ALLOCATOR: NORMAL\n");
+      fflush(stdout);
     }
 
     Allocator* recording_allocator = nullptr;

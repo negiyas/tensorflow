@@ -117,6 +117,14 @@ class GpuDriver {
   // (supported on CUDA only)
   static void UnifiedMemoryDeallocate(GpuContext* context, void* location);
 
+  // Allocates an ATS memory space of size bytes associated with the given
+  // context via malloc
+  static void* ATSMemoryAllocate(GpuContext* context, uint64 bytes);
+
+  // Deallocates an ATS memory space of size bytes associated with the given
+  // context via free
+  static void ATSMemoryDeallocate(GpuContext* context, void* location);
+
   // Allocates page-locked and CUDA-registered memory on the host via
   // cuMemAllocHost.
   // http://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__MEM.html#group__CUDA__MEM_1gdd8311286d2c2691605362c689bc64e0

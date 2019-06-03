@@ -208,6 +208,13 @@ class StreamExecutor {
   // UnifiedMemoryAllocate.
   void UnifiedMemoryDeallocate(void *location);
 
+  // Allocates ATS memory space of the given size, if supported.
+  void *ATSMemoryAllocate(uint64 bytes);
+
+  // Deallocates ATS memory space previously allocated with
+  // ATSMemoryAllocate.
+  void ATSMemoryDeallocate(void *location);
+
   // Allocates a region of host memory and registers it with the platform API.
   // Memory allocated in this manner (or allocated and registered with
   // HostMemoryRegister() is required for use in asynchronous memcpy operations,

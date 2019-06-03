@@ -17,6 +17,9 @@ limitations under the License.
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <cuda_runtime_api.h>
 
 #include <map>
 #include <set>
@@ -177,11 +180,13 @@ void CheckPointerIsValid(const PtrT ptr, absl::string_view name) {
 
   // If we failed, reset cuda error status to avoid poisoning cuda streams.
   if (err != cudaSuccess) cudaGetLastError();
+#if 0
   bool points_to_host_memory = (err == cudaErrorInvalidValue ||
                                 attributes.memoryType != cudaMemoryTypeDevice);
   CHECK_EQ(is_host_ptr, points_to_host_memory) << absl::StreamFormat(
       "%s pointer is not actually on %s: %p", name, is_host_ptr ? "CPU" : "GPU",
       reinterpret_cast<const void*>(ptr));
+#endif
 }
 
 // Call cuCtxtSynchronize and crash if it doesn't succeed.
@@ -658,8 +663,13 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   ScopedActivateContext activation(context);
   CUresult res = cuMemsetD8(location, value, size);
   if (res != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << "failed to memset memory: " << ToString(res);
     return false;
+#else
+    LOG(ERROR) << "failed to memset memory: " << ToString(res) << " ATSSKIP";
+    memset((void *) location, value, size);
+#endif
   }
   return true;
 }
@@ -671,8 +681,16 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   ScopedActivateContext activation(context);
   CUresult res = cuMemsetD32(location, value, uint32_count);
   if (res != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << "failed to memset memory: " << ToString(res);
     return false;
+#else
+    LOG(ERROR) << "failed to memset memory: " << ToString(res) << " ATSSKIP";
+    uint32 *ptr = (uint32 *) location;
+    for (size_t i = 0; i < uint32_count; i++) {
+      ptr[i] = value;
+    }
+#endif
   }
   return true;
 }
@@ -685,8 +703,15 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   ScopedActivateContext activation(context);
   CUresult res = cuMemsetD8Async(location, value, uint32_count, stream);
   if (res != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << "failed to enqueue async memset operation: " << ToString(res);
     return false;
+#else
+    LOG(ERROR) << "failed to enqueue async memset operation: " << ToString(res)
+               << " ATSSKIP";
+    cuStreamSynchronize(stream);
+    memset((void *) location, value, uint32_count);
+#endif
   }
   VLOG(2) << "successfully enqueued async memset operation";
   return true;
@@ -700,8 +725,18 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   ScopedActivateContext activation(context);
   CUresult res = cuMemsetD32Async(location, value, uint32_count, stream);
   if (res != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << "failed to enqueue async memset operation: " << ToString(res);
     return false;
+#else
+    LOG(ERROR) << "failed to enqueue async memset operation: " << ToString(res)
+               << " ATSSKIP";
+    cuStreamSynchronize(stream);
+    uint32 *ptr = (uint32 *) location;
+    for (size_t i = 0; i < uint32_count; i++) {
+      ptr[i] = value;
+    }
+#endif
   }
   VLOG(2) << "successfully enqueued async memset operation";
   return true;
@@ -903,6 +938,28 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
 }
 
+/* static */ void *GpuDriver::ATSMemoryAllocate(GpuContext *context,
+						uint64 bytes) {
+  // ATS memory is visible to all CUDA contexts. Safe for our use model.
+  void *ptr = nullptr;
+  int res = posix_memalign(&ptr, 512, bytes);
+  if (res != 0) {
+    LOG(ERROR) << "failed to alloc " << bytes
+               << " bytes ATS memory; result: " << strerror(res);
+    return nullptr;
+  }
+  VLOG(2) << "allocated " << ptr << " of " << bytes << " bytes in ATS memory";
+  printf("CUDADRIVER ATSMemoryAllocate(%lu) called\n", bytes);
+  fflush(stdout);
+  return ptr;
+}
+
+/* static */ void GpuDriver::ATSMemoryDeallocate(GpuContext *context,
+						 void *location) {
+  free(location);
+  VLOG(2) << "deallocated ATS memory at " << location;
+}
+
 /* static */ bool GpuDriver::HostRegister(GpuContext* context, void* location,
                                           uint64 bytes) {
   ScopedActivateContext activation(context);
@@ -1079,10 +1136,16 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
   CUresult res = cuMemcpyDtoH(host_dst, gpu_src, size);
   if (res != CUDA_SUCCESS) {
+#if 0
     return port::InternalError(absl::StrFormat(
         "failed to synchronous memcpy from device to host: %s; "
         "host dst: %p; GPU src: %p; size: %u=0x%x",
         ToString(res), host_dst, absl::bit_cast<void*>(gpu_src), size, size));
+#else
+    LOG(ERROR) << "failed to call cuMemcpyDtoH: " << ToString(res)
+               << " ATSSKIP";
+    memcpy(host_dst, (void *) gpu_src, size);
+#endif
   }
   VLOG(2) << "successfully sync memcpy'd d2h of " << size << " bytes to "
           << host_dst;
@@ -1100,10 +1163,16 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
   CUresult res = cuMemcpyHtoD(gpu_dst, host_src, size);
   if (res != CUDA_SUCCESS) {
+#if 0
     return port::InternalError(absl::StrFormat(
         "failed to synchronous memcpy from host to device: %s; GPU dst: %p;"
         " host src: %p; size: %u=0x%x",
         ToString(res), absl::bit_cast<void*>(gpu_dst), host_src, size, size));
+#else
+    LOG(ERROR) << "failed to call cuMemcpyHtoD: " << ToString(res)
+               << " ATSSKIP";
+    memcpy((void *) gpu_dst, host_src, size);
+#endif
   }
   VLOG(2) << "successfully enqueued sync memcpy h2d of " << size << " bytes";
   return port::Status::OK();
@@ -1120,11 +1189,17 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
   CUresult res = cuMemcpyDtoD(gpu_dst, gpu_src, size);
   if (res != CUDA_SUCCESS) {
+#if 0
     return port::InternalError(absl::StrFormat(
         "failed to synchronous memcpy from host to device: %s; GPU dst: %p; "
         "GPU src: %p; size: %u=0x%x",
         ToString(res), absl::bit_cast<void*>(gpu_dst),
         absl::bit_cast<void*>(gpu_src), size, size));
+#else
+    LOG(ERROR) << "failed to call cuMemcpyDtoD: " << ToString(res)
+               << " ATSSKIP";
+    memcpy((void *) gpu_dst, (void *) gpu_src, size);
+#endif
   }
   VLOG(2) << "successfully sync memcpy'd d2d of " << size << " bytes";
   return port::Status::OK();
@@ -1166,11 +1241,18 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
   CUresult res = cuMemcpyHtoDAsync(gpu_dst, host_src, size, stream);
   if (res != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << absl::StrFormat(
         "failed to enqueue async memcpy from host to device: %s; GPU dst: %p; "
         "host src: %p; size: %u=0x%x",
         ToString(res), absl::bit_cast<void*>(gpu_dst), host_src, size, size);
     return false;
+#else
+    LOG(ERROR) << "failed to call cuMemcpyHtoDAsync: " << ToString(res)
+               << " ATSSKIP gpu_dst=" << gpu_dst;
+    cudaMemcpyAsync((void *) gpu_dst, host_src, size, cudaMemcpyHostToHost,
+                    stream);
+#endif
   }
   VLOG(2) << "successfully enqueued async memcpy h2d of " << size << " bytes"
           << " on stream " << stream;
@@ -1189,6 +1271,7 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
   }
   CUresult result = cuMemcpyDtoDAsync(gpu_dst, gpu_src, size, stream);
   if (result != CUDA_SUCCESS) {
+#if 0
     LOG(ERROR) << absl::StrFormat(
         "failed to enqueue async memcpy from device to device: %s"
         "; GPU dst: %p on %s %s"
@@ -1202,6 +1285,12 @@ GpuDriver::ContextGetSharedMemConfig(GpuContext* context) {
         CUDAPointersToCanAccessString(gpu_src, gpu_dst), size, size);
 
     return false;
+#else
+    LOG(ERROR) << "failed to call cuMemcpyDtoDAsync: " << ToString(result)
+               << " ATSSKIP";
+    cudaMemcpyAsync((void *) gpu_dst, (void *) gpu_src, size,
+                    cudaMemcpyHostToHost, stream);
+#endif
   }
   VLOG(2) << "successfully enqueued async memcpy d2d of " << size << " bytes";
   return true;

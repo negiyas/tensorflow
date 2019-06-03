@@ -516,6 +516,20 @@ void StreamExecutor::UnifiedMemoryDeallocate(void *location) {
   return implementation_->UnifiedMemoryDeallocate(location);
 }
 
+void *StreamExecutor::ATSMemoryAllocate(uint64 bytes) {
+  void *buffer = implementation_->ATSMemoryAllocate(bytes);
+  VLOG(1) << "Called StreamExecutor::ATSMemoryAllocate(size=" << bytes
+          << ") returns " << buffer << StackTraceIfVLOG10();
+  return buffer;
+}
+
+void StreamExecutor::ATSMemoryDeallocate(void *location) {
+  VLOG(1) << "Called StreamExecutor::ATSMemoryDeallocate(location="
+          << location << ")" << StackTraceIfVLOG10();
+
+  return implementation_->ATSMemoryDeallocate(location);
+}
+
 void *StreamExecutor::HostMemoryAllocate(uint64 size) {
   void *buffer = implementation_->HostMemoryAllocate(size);
   VLOG(1) << "Called StreamExecutor::HostMemoryAllocate(size=" << size
